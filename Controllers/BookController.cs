@@ -1,7 +1,7 @@
 ﻿using BookApp.Models;
+using BookApp.Shared;
 using Microsoft.AspNetCore.Mvc;
-using System.Text;
-using System.Text.Json;
+using Microsoft.Extensions.Caching.Memory;
 
 namespace BookApp.Controllers
 {
@@ -9,36 +9,78 @@ namespace BookApp.Controllers
     [Route("api/book")]
     public class BookController : ControllerBase
     {
-        [HttpGet]
-        public async Task<ActionResult<Book>> GetBookInfo()
-        {
-            string filePath = Path.Combine("data", "ISBN_Input_File.txt");
-            string isbn = System.IO.File.ReadAllText(filePath);
+        private readonly IMemoryCache _cache;
 
-            string apiUrl = $"https://openlibrary.org/isbn/{isbn}";
+        public BookController(IMemoryCache memoryCache)
+        {
+            _cache = memoryCache;
+        }
+
+        [HttpGet]
+        public async Task<IActionResult> GetBooksInfo()
+        {
+            string[] isbns = BookService.GetISBNsFromTextFile("ISBN_Input_File.txt");
+            var books = new List<Book>();
+            var rowNumber = 0;
+
             using (var client = new HttpClient())
             {
-                HttpResponseMessage response = await client.GetAsync(apiUrl);
-                if (response.IsSuccessStatusCode)
+                foreach (string isbn in isbns)
                 {
-                    var json = await response.Content.ReadAsStringAsync();
-                    var stream = new MemoryStream(Encoding.UTF8.GetBytes(json));
-                    var data = await JsonSerializer.DeserializeAsync<Book>(stream);
+                    rowNumber++;
+
+                    string dataRetrievalType;
+
+                    if (!_cache.TryGetValue(isbn, out Book data))
+                    {
+                        var apiURL = $"https://openlibrary.org/api/books?bibkeys=ISBN:{isbn}&format=json&jscmd=data";
+
+                        var response = await client.GetAsync(apiURL);
+
+                        if (response.IsSuccessStatusCode)
+                        {
+                            var json = await response.Content.ReadAsStringAsync();
+
+                            data = BookService.GetBookInfoFromJson(isbn, json);
+
+                            _cache.Set(isbn, data, TimeSpan.FromMinutes(60));
+
+                            dataRetrievalType = "Server";
+                        }
+                        else
+                        {
+                            throw new Exception($"Request for ISBN {isbn} failed with status code {response.StatusCode}.");
+                        }
+                    }
+                    else
+                    {
+                        dataRetrievalType = "Cache";
+                    }
+
                     var book = new Book
                     {
-                        ISBN = data.ISBN,
+                        ISBN = isbn,
                         Title = data.Title,
                         Subtitle = data.Subtitle,
-                        AuthorName = data.AuthorName,
-                        NumberOfPages = data.NumberOfPages,
-                        PublishDate = data.PublishDate
+                        Authors = data.Authors,
+                        Number_of_pages = data.Number_of_pages,
+                        Publish_date = data.Publish_date,
+                        DataRetrievalType = dataRetrievalType
                     };
-                    return Ok(book);
+
+                    books.Add(book);
                 }
-                else
-                {
-                    return NotFound();
-                }
+
+                BookService.WriteCsvFileToDisk(books, $@"C:\Users\{Environment.UserName}\Desktop\Books.csv");
+            }
+
+            if (books.Count > 0)
+            {
+                return Ok(books);
+            }
+            else
+            {
+                return NotFound();
             }
         }
     }
