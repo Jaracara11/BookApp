@@ -7,8 +7,8 @@ namespace BookApp.Shared
     {
         public static string[] GetISBNsFromTextFile(string fileName)
         {
-            string filePath = Path.Combine("data", fileName);
-            string fileContent = File.ReadAllText(filePath);
+            var filePath = Path.Combine("data", fileName);
+            var fileContent = File.ReadAllText(filePath);
             string[] isbns = fileContent.Replace("\r\n", "").Replace("\n", "").Replace(" ", "").Split(',');
 
             return isbns;

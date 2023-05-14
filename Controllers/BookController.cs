@@ -21,14 +21,11 @@ namespace BookApp.Controllers
         {
             string[] isbns = BookService.GetISBNsFromTextFile("ISBN_Input_File.txt");
             var books = new List<Book>();
-            var rowNumber = 0;
 
             using (var client = new HttpClient())
             {
                 foreach (string isbn in isbns)
                 {
-                    rowNumber++;
-
                     string dataRetrievalType;
 
                     if (!_cache.TryGetValue(isbn, out Book data))
